@@ -1,4 +1,5 @@
-# Orbital Bushido
+# SET-Sim
+## Space Elevator Tether Simulator
 
 Space elevator cable stress calculator. 
 
