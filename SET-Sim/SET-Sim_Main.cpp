@@ -1,7 +1,5 @@
 
 
-
-
 // ============================================
 // Defining the Inclusions
 // ============================================
@@ -113,7 +111,20 @@ struct MaterialProperties {
     double sigma_max;                   // Safety factor applied
     double safety_factor;               // Figure of Merit (tensile_strength/density) in km
     double FOM;
+	double price_per_kg;                // $/kg
+	double totalCost;                  // total cost of the cable
 }matProp;
+
+struct locationProperties {
+    string name;
+    double latitude;                    // degrees
+    double longitude;                   // degrees
+    double elevation;                   // meters above sea level
+    double atmos_density;               // kg/m^3
+    double wind_speed;                  // m/s
+    double seismic_activity;            // Richter scale
+}locProp;
+
 // ============================================
 // Defining the arrays
 // ============================================
@@ -121,13 +132,21 @@ vector<double> cableLength;
 vector<double> cableWidth;
 vector<double> cableWeight;
 vector<double> cableSegmentWeight;
+vector<double> latitudeList;
+vector<double> longitudeList;
+vector<double> elevationList;
+vector<double> atmos_densityList;
+vector<double> wind_speedList;
+vector<double> seismic_activityList;
+vector<locationProperties> locationList;     // to hold multiple location properties (i don't know wether to use a struct or just multiple arrays here.)
 
 
 // ============================================
 // Settings
 // ============================================
 // This is to define any settings like DEBUG that helps me understand where i messed up
-bool debug = 0;
+//0 = off, 1 = enabled for orbitalMechanics, cableGeometry, materialDefinition, 2 = locationChoice
+int debug = 2;
 
 // ============================================
 // Actual mfn code
@@ -156,7 +175,7 @@ void materialProperties(string n, double density, double tensile, double yield_s
     //calculations for finding the max strength before fail accounting for the safetyfactor and FOM
     matProp.sigma_max = (yield_strength / sf);
     matProp.FOM = (tensile / (density * g_0) / 1000.0);
-
+    
 }
 
 //this is to define the material properties
@@ -165,71 +184,73 @@ void materialDefinition() {
     char choice;
     cin >> choice;
     switch (toupper(choice)) {
-    case 'S':
-        cout << "You have chosen Steel." << endl;
-        material_density = 7850.0;                 // Material density (kg/m³)
-        tensile_strength = 1.52e9;                 // Tensile strength of material (Pa)
-        yield_strength = 1.24e9;                   // yield strength (Pa)
-        safety_factor = 2.0;                       // Safety factor (typically 2-3)
-        materialProperties("Steel", material_density, tensile_strength, yield_strength, safety_factor);
-        cout << "Global variables: " << endl;
-        cout << "Mat_density: " << material_density << endl << "Tensile_strength: " << tensile_strength << endl << "Yield_strength: " << yield_strength << endl << "Safety Factor: " << safety_factor << endl;
-        cout << "Calculated: " << endl << "FOM: " << matProp.FOM << endl << "Sigma Max: " << matProp.sigma_max << endl;
-        break;
-    case 'C':
-        char copperOption;
-        cout << "You have chosen Copper." << endl;
-        cout << "Is the copper cold-worked? (y/N): ";
-        cin >> copperOption;
-        material_density = 8960.0;                 // Material density (kg/m³)
-        safety_factor = 2.0;                       // Safety factor (typically 2-3)
-        if (toupper(copperOption) == 'Y') {
-            tensile_strength = 3.5e8;              // Tensile strength of material (Pa)
-            yield_strength = 3.2e9;                // yield strength (Pa)
+        case 'S':
+            cout << "You have chosen Steel." << endl;
+            material_density = 7850.0;                 // Material density (kg/m³)
+            tensile_strength = 1.52e9;                 // Tensile strength of material (Pa)
+            yield_strength = 1.24e9;                   // yield strength (Pa)
+            safety_factor = 2.0;                       // Safety factor (typically 2-3)
+            materialProperties("Steel", material_density, tensile_strength, yield_strength, safety_factor);
+            cout << "Global variables: " << endl;
+            cout << "Mat_density: " << material_density << endl << "Tensile_strength: " << tensile_strength << endl << "Yield_strength: " << yield_strength << endl << "Safety Factor: " << safety_factor << endl;
+            cout << "Calculated: " << endl << "FOM: " << matProp.FOM << endl << "Sigma Max: " << matProp.sigma_max << endl;
+            break;
+        case 'C': {
+            string copperOption;
+            cout << "You have chosen Copper." << endl;
+            cout << "Is the copper cold-worked? (y/N): ";
+            cin.ignore(); // Clear leftover newline from previous input
+            getline(cin, copperOption);
+            material_density = 8960.0;                 // Material density (kg/m³)
+            safety_factor = 2.0;                       // Safety factor (typically 2-3)
+            if (!copperOption.empty() && (copperOption[0] == 'y' || copperOption[0] == 'Y')) {
+                tensile_strength = 3.5e8;              // Tensile strength of material (Pa)
+                yield_strength = 4.0e8;                // yield strength (Pa)
+            }
+            else {
+                tensile_strength = 2.0e9;             // Tensile strength of material (Pa)
+                yield_strength = 8.0e7;               // yield strength (Pa)
+            }
+            materialProperties("Copper", material_density, tensile_strength, yield_strength, safety_factor);
+            cout << "Global variables: " << endl;
+            cout << "Mat_density: " << material_density << endl << "Tensile_strength: " << tensile_strength << endl << "Yield_strength: " << yield_strength << endl << "Safety Factor: " << safety_factor << endl;
+            cout << "Calculated: " << endl << "FOM: " << matProp.FOM << endl << "Sigma Max: " << matProp.sigma_max;
+            break;
         }
-        else {
-            tensile_strength = 2.0e9;             // Tensile strength of material (Pa)
-            yield_strength = 8.0e7;               // yield strength (Pa)
+        case 'N':
+            cout << "You have chosen Carbon Nanotubes." << endl;
+            material_density = 1400;                 // Material density (kg/m³)
+            tensile_strength = 1.5e11;               // Tensile strength of material (Pa)
+            yield_strength = 6.0e10;                 // yield strength (Pa)
+            safety_factor = 2.0;                     // Safety factor (typically 2-3)
+            materialProperties("Carbon Nanotubes", material_density, tensile_strength, yield_strength, safety_factor);
+            cout << "Global variables: " << endl;
+            cout << "Mat_density: " << material_density << endl << "Tensile_strength: " << tensile_strength << endl << "Yield_strength: " << yield_strength << endl << "Safety Factor: " << safety_factor << endl;
+            cout << "Calculated: " << endl << "FOM: " << matProp.FOM << endl << "Sigma Max: " << matProp.sigma_max << endl;
+            break;
+        case 'T':
+            cout << "You have chosen Titanium." << endl;
+            material_density = 4506.0;                 // Material density (kg/m³)
+            tensile_strength = 1e8;                    // Tensile strength of material (Pa)
+            yield_strength = 1.4e8;                    // yield strength (Pa)
+            safety_factor = 2.0;                       // Safety factor (typically 2-3)
+            materialProperties("Titanium", material_density, tensile_strength, yield_strength, safety_factor);
+            cout << "Global variables: " << endl;
+            cout << "Mat_density: " << material_density << endl << "Tensile_strength: " << tensile_strength << endl << "Yield_strength: " << yield_strength << endl << "Safety Factor: " << safety_factor << endl;
+            cout << "Calculated: " << endl << "FOM: " << matProp.FOM << endl << "Sigma Max: " << matProp.sigma_max << endl;
+            break;
+        case 'O':
+            cout << "You have chosen to define these yourself." << endl;
+            cout << "Material Density (kg/m^3): ";
+            cin >> material_density;          // Material density (kg/m³)
+            cout << endl << "Tensile Strength (Pa): ";
+            cin >> tensile_strength;          // Tensile strength of material (Pa)
+            cout << endl << "yield_strengths (Pa): ";
+            cin >> yield_strength;            // Maximum tensile stress (Pa)
+            cout << endl << "Safety Factor (typically 2-3) (2): ";
+            cin >> safety_factor;             // Safety factor (typically 2-3)
+            break;
         }
-        materialProperties("Copper", material_density, tensile_strength, yield_strength, safety_factor);
-        cout << "Global variables: " << endl;
-        cout << "Mat_density: " << material_density << endl << "Tensile_strength: " << tensile_strength << endl << "Yield_strength: " << yield_strength << endl << "Safety Factor: " << safety_factor << endl;
-        cout << "Calculated: " << endl << "FOM: " << matProp.FOM << endl << "Sigma Max: " << matProp.sigma_max;
-        break;
-    case 'N':
-        cout << "You have chosen Carbon Nanotubes." << endl;
-        material_density = 1400;                 // Material density (kg/m³)
-        tensile_strength = 1.5e11;               // Tensile strength of material (Pa)
-        yield_strength = 1.0e11;                 // yield strength (Pa)
-        safety_factor = 2.0;                     // Safety factor (typically 2-3)
-        materialProperties("Carbon Nanotubes", material_density, tensile_strength, yield_strength, safety_factor);
-        cout << "Global variables: " << endl;
-        cout << "Mat_density: " << material_density << endl << "Tensile_strength: " << tensile_strength << endl << "Yield_strength: " << yield_strength << endl << "Safety Factor: " << safety_factor << endl;
-        cout << "Calculated: " << endl << "FOM: " << matProp.FOM << endl << "Sigma Max: " << matProp.sigma_max << endl;
-        break;
-    case 'T':
-        cout << "You have chosen Titanium." << endl;
-        material_density = 4506.0;                 // Material density (kg/m³)
-        tensile_strength = 1e8;                    // Tensile strength of material (Pa)
-        yield_strength = 1.4e8;                    // yield strength (Pa)
-        safety_factor = 2.0;                       // Safety factor (typically 2-3)
-        materialProperties("Titanium", material_density, tensile_strength, yield_strength, safety_factor);
-        cout << "Global variables: " << endl;
-        cout << "Mat_density: " << material_density << endl << "Tensile_strength: " << tensile_strength << endl << "Yield_strength: " << yield_strength << endl << "Safety Factor: " << safety_factor << endl;
-        cout << "Calculated: " << endl << "FOM: " << matProp.FOM << endl << "Sigma Max: " << matProp.sigma_max << endl;
-        break;
-    case 'O':
-        cout << "You have chosen to define these yourself." << endl;
-        cout << "Material Density (kg/m^3): ";
-        cin >> material_density;          // Material density (kg/m³)
-        cout << endl << "Tensile Strength (Pa): ";
-        cin >> tensile_strength;          // Tensile strength of material (Pa)
-        cout << endl << "yield_strengths (Pa): ";
-        cin >> yield_strength;            // Maximum tensile stress (Pa)
-        cout << endl << "Safety Factor (typically 2-3) (2): ";
-        cin >> safety_factor;             // Safety factor (typically 2-3)
-        break;
-    }
 }
 
 //This is for cableGeometry to check whether or not the cable has snapped at any point.
@@ -358,15 +379,17 @@ void cableGeometry() {
     cable_failed = isBroken(num_segments);
     //report results
     if (cable_failed) {
+        cout << endl << "====== Cable Integrity Check ======" << endl;
         cout << endl << "Cable Failure" << endl;
         cout << "Failure at height: " << cableLength[failure_height] / 1000 << " km" << endl;
         cout << "Stress at failure: " << (cableWeight[failure_height] / cableWidth[failure_height]) / 1e9 << " GPa" << endl;
         cout << "Material Limit: " << matProp.sigma_max / 1e9 << " GPa" << endl;
     }
     else {
+		cout << endl << "====== Cable Integrity Check ======" << endl;
         cout << endl << "SUCCESS: The cable STANDS STRONG" << endl;
         cout << "Maximum stress: " << max_stress / 1e9 << " GPa" << endl;
-        cout << " Material limit: " << matProp.sigma_max / 1e9 << " GPa" << endl;
+        cout << "Material limit: " << matProp.sigma_max / 1e9 << " GPa" << endl;
         cout << "Safety margin: " << ((matProp.sigma_max - max_stress) / matProp.sigma_max * 100) << "%" << endl;
 
     }
@@ -395,17 +418,198 @@ void cableGeometry() {
 
 }
 
+//This is to calculate price per kg
+void pricePerKg() {
+    if (matProp.name == "Steel") {
+        matProp.price_per_kg = 0.5; // $0.5 per kg
+    }
+    else if (matProp.name == "Copper") {
+        matProp.price_per_kg = 10.0; // $10.0 per kg
+    }
+    else if (matProp.name == "Carbon Nanotubes") {
+        matProp.price_per_kg = 400.0; // $400 per kg (current estimate, can vary widely)
+    }
+    else if (matProp.name == "Titanium") {
+        matProp.price_per_kg = 15.0; // $15.0 per kg
+    }
+    else {
+        matProp.price_per_kg = 20.0; // default for other materials
+    }
+	cout << endl << "====== Material Cost Analysis ======" << endl;
+	cout << endl << "Price per kg of " << matProp.name << ": $" << matProp.price_per_kg << " per kg" << endl;
+    //calculate total cable cost
+    double total_mass = 0;
+    for (double segment_weight : cableSegmentWeight) {
+        total_mass += segment_weight / g_0; // convert weight (N) to mass (kg)
+    }
+    double total_cost = total_mass * matProp.price_per_kg;
+	cout << "Estimated total cable cost: $" << total_cost / 1e6 << " million" << endl;
+    matProp.totalCost = total_cost;
+}
+
+//This is to calculate location effects
+void locationEffects() {
+
+}
+
+//This is to get the location
+void locationChoice() {
+    cout << "Specific location (Y) or compare for best results (N)? (y/N): ";
+	string locChoice;
+    cin.ignore();
+    getline(cin, locChoice);
+	if (locChoice == "") locChoice = "N"; //default to N if empty
+    if (locChoice == "y" || locChoice == "Y") {
+		cout << "Enter latitude (-90 to 90): ";
+		double latitude;
+        double longitude;
+		cin >> latitude;
+		cout << "Enter longitude (-180 to 180) (0 by default): ";
+        cin >> longitude;
+
+        //put it in the locProp struct
+        locProp.latitude = latitude;
+		locProp.longitude = longitude;
+    }
+    else { // the illusion of choice lmao
+        cout << "Did you want to compare specific locations or use the defualt of: " << endl;
+		cout << "1. Equator (0deg)" << endl;
+		cout << "2. 28.5N (Cape Canaveral)" << endl;
+		cout << "3. 28.5N (Kennedy Space Center)" << endl;
+		cout << "4. 34N (Vandenberg Space Force Base)" << endl;
+		cout << "5. 45.6N (Baikonur Cosmodrome)" << endl;
+		cout << "6. 5.2N (Guiana Space Centre)" << endl;
+		cout << "Or you can choose to enter your own latitudes as well." << endl;
+        cout << "Either enter 'default' or 'custom': ";
+		string locType;
+		getline(cin, locType);
+        
+        if (locType == "default" || locType == "D" || locType == "d") {
+			//location list has name, latitude, longitude, elevation, atmos_density, wind_speed, seismic activity
+            locationList.push_back({ "Equator", 0.0, 0.0, 0.0, 1.225, 5.0, 0.0 });
+            locationList.push_back({ "Cape Canaveral", 28.5, -80.6, 3.0, 1.225, 10.0, 0.0 });
+            locationList.push_back({ "Kennedy Space Center", 28.5, -80.6, 3.0, 1.225, 10.0, 0.0 });
+            locationList.push_back({ "Vandenberg Space Force Base", 34.7, -120.6, 112.0, 1.225, 8.0, 1.5 });
+            locationList.push_back({ "Baikonur Cosmodrome", 45.6, 63.3, 90.0, 1.225, 7.0, 0.5 });
+            locationList.push_back({ "Guiana Space Centre", 5.2, -52.8, 10.0, 1.225, 6.0, 0.0 });
+
+			cout << "Using default locations." << endl;
+        }
+        else { //choose your own adventure style
+            cout << "Enter latitudes separated by spaces (end with -999): ";
+            double lat;
+            while (true) {
+				cout << "Latitude: ";
+                cin >> lat;
+                if (lat == -999) break;
+                latitudeList.push_back(lat);
+            }
+			cout << "Would you like to assign Longitudes as well? (0 by default) (y/N): ";
+			string lonChoice;
+            getline(cin, lonChoice);
+            if (lonChoice == "y" || lonChoice == "Y") {
+                double longitude;
+                for (size_t i = 0; i < latitudeList.size(); i++) {
+                    cout << "Enter longitude for latitude " << latitudeList[i] << ": ";
+                    cin >> longitude;
+                    longitudeList.push_back(longitude);
+                }
+            }
+            else { // defaults to 0 if not specified
+                for (size_t i = 0; i < latitudeList.size(); i++){
+                    longitudeList.push_back(0.0);
+                }
+           
+            }
+            cout << "Would you like to assign any other variables as well? elevation, atmos_density, wind_speed, seismic activity (0 by default) (y/N): ";
+            string otherChoice;
+            getline(cin, otherChoice);
+            if (otherChoice == "y" || otherChoice == "Y") {
+                double elevation;
+                double atmos_density;
+				double wind_speed;
+				double seismic_activity;
+				cout << "Would you like to assign elevation? (y/N): ";
+				string elevChoice;
+				getline(cin, elevChoice);
+                if (elevChoice == "y" || elevChoice == "Y") {
+                    for (size_t i = 0; i < latitudeList.size(); i++) {
+                        cout << "Enter elevation for latitude " << latitudeList[i] << ": ";
+                        cin >> elevation;
+                        elevationList.push_back(elevation);
+                    }
+                }
+				cout << "Would you like to assign atmospheric density? (y/N): ";
+				string atmosChoice;
+                getline(cin, atmosChoice);
+                if (atmosChoice == "y" || atmosChoice == "Y") {
+                    for (size_t i = 0; i < latitudeList.size(); i++) {
+                        cout << "Enter atmospheric density for latitude " << latitudeList[i] << ": ";
+                        cin >> atmos_density;
+                        atmos_densityList.push_back(atmos_density);
+                    }
+				}
+				cout << "Would you like to assign wind speed? (y/N): ";
+                string windChoice;
+                getline(cin, windChoice);
+                if (windChoice == "y" || windChoice == "Y") {
+                    for (size_t i = 0; i < latitudeList.size(); i++) {
+                        cout << "Enter wind speed for latitude " << latitudeList[i] << ": ";
+                        cin >> wind_speed;
+                        wind_speedList.push_back(wind_speed);
+                    }
+                }
+				cout << "Would you like to assign seismic activity? (y/N): ";
+                string seismicChoice;
+                getline(cin, seismicChoice);
+                if (seismicChoice == "y" || seismicChoice == "Y") {
+                    for (size_t i = 0; i < latitudeList.size(); i++) {
+                        cout << "Enter seismic activity for latitude " << latitudeList[i] << ": ";
+                        cin >> seismic_activity;
+                        seismic_activityList.push_back(seismic_activity);
+                    }
+				}
+            }
+            else { // defaults to 0 (atmos is 1.225) ifnot specified
+                for (size_t i = 0; i < latitudeList.size(); i++) {
+                    longitudeList.push_back(0.0);
+					elevationList.push_back(0.0);
+                    atmos_densityList.push_back(1.225);
+                    wind_speedList.push_back(0.0);
+					seismic_activityList.push_back(0.0);
+                }
+                for (size_t i = 0; i < latitudeList.size(); i++) {
+                    locationList.push_back({ "Custom Location", latitudeList[i], longitudeList[i], elevationList[i], atmos_densityList[i], wind_speedList[i], seismic_activityList[i] });
+                }
+            }
+		}
+    }
+	cout << debug << endl << "====== Location Summary ======" << endl;
+    if (debug == 2) {
+        for (size_t i = 0; i < locationList.size(); i++) {
+            cout << "Location: " << i + 1 << endl << "Name: " << locationList[i].name << endl << "Latitude: " << locationList[i].latitude << endl << "Longitude: " << locationList[i].longitude << endl <<  "Atmospheric_density: " << locationList[i].atmos_density << endl << "Elevation: " << locationList[i].elevation << endl << "Wind Speed: " << locationList[i].wind_speed << endl << endl;
+        }
+    }
+}
 
 
-int main()
-{
+//This is for the main function
+int main(){
     if (debug == 1) cout << endl << "calling materialDefinition()" << endl;
     materialDefinition();
     if (debug == 1) cout << endl << "calling orbitalMechanics()" << endl;
     orbitalMechanics();
     if (debug == 1) cout << endl << "calling cableGeometry()" << endl;
     cableGeometry();
+    if (debug == 1) cout << endl << "calling pricePerKg()" << endl;
+    pricePerKg();
+	if (debug == 1) cout << endl << "calling locationChoice()" << endl;
+    locationChoice();
+	if (debug == 1) cout << endl << "calling locationEffects()" << endl;
+	locationEffects();
 
+
+    
     return 0;
 }
 
