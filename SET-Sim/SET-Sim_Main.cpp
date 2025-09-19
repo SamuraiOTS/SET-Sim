@@ -126,6 +126,7 @@ struct locationProperties {
 }locProp;
 
 struct locationEffects {
+	int    sectnum;					   // Section number/index
 	double coriolis_parameter;          // Coriolis parameter at the location (1/s)
 	double centrifugal_effect;          // Centrifugal effect at the location (m/s^2)
 	double gravity_effect;              // Local gravity effect at the location (m/s^2)
@@ -174,14 +175,14 @@ vector<double> seismic_activityList;
 vector<locationProperties> locationList;     // to hold multiple location properties (i don't know wether to use a struct or just multiple arrays here.)
 vector<sectionProperties> sectionList;       // to hold multiple section properties (dude, structs are life atp)
 vector<sectionEffects> sectionEffectsList;   // to hold multiple section effects 
-
+vector<locationEffects> locationEffectsList; // to hold multiple location effects
 
 // ============================================
 // Settings
 // ============================================
 // This is to define any settings like DEBUG that helps me understand where i messed up
 // Made it verbose for no actual reason. check debug function to see details
-char debug;
+int debug = 0;
 
 
 /*
@@ -347,158 +348,14 @@ bool isBroken(int num_segments) {
     return false;
 }
 
-//cableGeometry is used for calculating and storing the data of the cross-section, weight, length of the elevator
-
-void cableGeometry() {
-    //Init variables
-
-    bool cable_failed = false;
-    //cable extends 50% beyond GEO for counterweight
-    r_top = r_GEO * 1.5;
-
-    total_cable_length = r_top - r_0;
-
-    cout << endl << "Total cable length: " << total_cable_length / 1000 << " km" << endl;
-
-    double dr = 1000; // 1 km segments
-    int num_segments = total_cable_length / dr;
-
-    cout << "Number of segments " << num_segments << endl;
-
-    //resize the vectors to hold all results
-    cableLength.resize(num_segments);
-    cableWidth.resize(num_segments);
-    cableWeight.resize(num_segments);
-    cableSegmentWeight.resize(num_segments);
-
-    //set A_TOP - cross sectional area of the top of the cable
-    double A_top = 1e-4; // 1cm^2
-    cout << "Initial area at top (A_top: " << A_top * 10000 << " cm2" << endl;
-
-    //pre-calculate cumulative g_eff for optimization
-    //creates an array where cumulative_g_eff[i] = integram from 0 to i
-
-    vector<double> cumulative_g_eff(num_segments + 1);
-    cumulative_g_eff[0] = 0; //base case
-
-    for (int i = 0; i < num_segments; i++) {
-        double r_i = r_0 + (i * dr);
-        double g_eff_i = (G * M / pow(r_i, 2)) - pow(omega, 2) * r_i;
-        cumulative_g_eff[i + 1] = cumulative_g_eff[i] + g_eff_i * dr;
-    }
-
-    cout << "Starting the heavy lifting..." << endl;
-
-    //main calculation loop (top to bottom)
-    //reset cumulative tension - starting at 0 at the top
-    cumulative_tension = 0;
-
-    //loop from top to bottom
-    for (int i = num_segments - 1; i >= 0; i--) {
-        //effective radius from earth's center
-        double current_r = r_0 + (i * dr);
-
-        //effective gravity at this point (negative beyond GEO)
-        double g_eff_local = (G * M / pow(current_r, 2)) - pow(omega, 2) * current_r;
-
-        //simple area from tension
-        double required_area_simple;
-        if (cumulative_tension > 0) {
-            required_area_simple = cumulative_tension / matProp.sigma_max;
-        }
-        else {
-            required_area_simple = A_top;
-        }
-
-        //exponential taper formula
-        //get integral from current point i to TOP
-        //uses pre-calculated cumulative array for 0(1) lookup
-        double g_eff_integral = cumulative_g_eff[num_segments] - cumulative_g_eff[i];
-
-        //apply exponential taper formula
-        //accounts for the accumulated gravitational stress from here to the top
-        double taper_factor = exp((material_density * abs(g_eff_integral)) / matProp.sigma_max);
-        double tapered_area = A_top * taper_factor;
-
-        //choose the safer area
-        double final_area = max(required_area_simple, tapered_area);
-
-        //ensure minimum area constraint
-        if (final_area < A_top) {
-            final_area = A_top;
-        }
-        //calculate the segment weight
-        double segment_weight = material_density * final_area * dr * abs(g_eff_local);
-
-        //update cumulative tension
-        cumulative_tension += segment_weight;
-
-        //store results
-        cableLength[i] = current_r - r_0;
-        cableWidth[i] = final_area;
-        cableWeight[i] = cumulative_tension;
-        cableSegmentWeight[i] = segment_weight;
-
-        if (debug == 1) {
-            //progress indicator
-            if (i % 1000 == 0) {
-                cout << "Height: " << (current_r - r_0) / 1000 << " km, " << endl
-                    << "Area: " << final_area * 10000 << " cm^2, " << endl
-                    << "Tension: " << cumulative_tension / 1e6 << " MN" << endl << endl;
-            }
-        }
-    }
-    //check for failure
-    cout << "Checking for cable integrity..." << endl;
-    cable_failed = isBroken(num_segments);
-    //report results
-    if (cable_failed) {
-        cout << endl << "====== Cable Integrity Check ======" << endl;
-        cout << endl << "Cable Failure" << endl;
-        cout << "Failure at height: " << cableLength[failure_height] / 1000 << " km" << endl;
-        cout << "Stress at failure: " << (cableWeight[failure_height] / cableWidth[failure_height]) / 1e9 << " GPa" << endl;
-        cout << "Material Limit: " << matProp.sigma_max / 1e9 << " GPa" << endl;
-    }
-    else {
-		cout << endl << "====== Cable Integrity Check ======" << endl;
-        cout << endl << "SUCCESS: The cable STANDS STRONG" << endl;
-        cout << "Maximum stress: " << max_stress / 1e9 << " GPa" << endl;
-        cout << "Material limit: " << matProp.sigma_max / 1e9 << " GPa" << endl;
-        cout << "Safety margin: " << ((matProp.sigma_max - max_stress) / matProp.sigma_max * 100) << "%" << endl;
-
-    }
-
-    //additional stats
-    double total_mass = 0;
-    double max_area = 0;
-    double min_area = 1e10; // large to start
-
-    for (int i = 0; i < num_segments; i++) {
-        //mass of segment
-        total_mass += material_density * cableWidth[i] * dr;
-
-        //track min/max area
-        if (cableWidth[i] > max_area) max_area = cableWidth[i];
-        if (cableWidth[i] < min_area) min_area = cableWidth[i];
-    }
-
-    cout << endl << "====== Cable Stats ======" << endl;
-    cout << "Total cable mass: " << total_mass / 1e6 << " metric tons" << endl;
-    cout << "Minimum area (at top): " << min_area * 10000 << " cm^2" << endl;
-    cout << "Maximum area (near Earth): " << max_area * 10000 << " cm^2" << endl;
-    cout << "Taper ratio: " << max_area / min_area << endl;
-    cout << "Cable extends from " << r_0 / 1000 << " km to " << r_top / 1000 << " km from Earth's center" << endl;
-    cout << "Done" << endl;
-
-}
-
 //This is to calculate location effects
-void locationEffect() {
+void locationEffect(int i) {
     double local_g;
     double coriolis_p;
     double local_omega;
     double velo_0;
     double toRAD = pi / 180.0;
+    double gravity_variation;
 
     int i = sectProp.sectNum; //section number to calculate at - change as needed
     //calculate sin of latitude in radians
@@ -507,15 +364,19 @@ void locationEffect() {
 
     //calculate local g based on latitude
     local_g = orbitalMechanics(sectionList[i].radius);
-	locEff.gravity_effect += local_g;
+    locationEffectsList[i].gravity_effect += local_g;
 
     //local coriolis parameter
     coriolis_p = 2 * omega * sinLatitude;
-	locEff.coriolis_parameter = coriolis_p;
+	locationEffectsList[i].coriolis_parameter = coriolis_p;
 
     //ground velocity at latitude
-    local_omega = omega * sectionList[i].radius * cosLatitude;
-	locEff.centrifugal_effect = local_omega;
+    local_omega = pow(omega, 2) * sectionList[i].radius * cosLatitude;
+
+	locationEffectsList[i].centrifugal_effect = local_omega;
+
+	gravity_variation = g_0 * (1 + 0.0053024 * pow(sinLatitude, 2) - 0.0000058 * pow(sin(2 * locProp.latitude * toRAD), 2));
+   
 }
 
 //This is to get the location
@@ -650,8 +511,8 @@ void locationChoice() {
             }
         }
     }
-    cout << debug << endl << "====== Location Summary ======" << endl;
-    if (debug == 'L') {
+    cout << "====== Location Summary ======" << endl;
+    if (debug == 1) {
         for (size_t i = 0; i < locationList.size(); i++) {
             cout << "Location: " << i + 1 << endl << "Name: " << locationList[i].name << endl << "Latitude: " << locationList[i].latitude << endl << "Longitude: " << locationList[i].longitude << endl << "Atmospheric_density: " << locationList[i].atmos_density << endl << "Elevation: " << locationList[i].elevation << endl << "Wind Speed: " << locationList[i].wind_speed << endl << endl;
         }
@@ -680,9 +541,167 @@ void counterweightDynamics() {
 //counterweightEffects is used for calculating and storing the data of the effects of the counterweight system on the cable
 void counterweightEffects() {
 }
+//cableGeometry is used for calculating and storing the data of the cross-section, weight, length of the cable system
+void cableGeometry() {
+    //Init variables
 
-//elevatorGeometry is used for calculating and storing the data of the cross-section, weight, length of the full elevator system
-void elevatorGeometry() {
+    bool cable_failed = false;
+    double g_eff_local;
+
+
+
+    //cable extends 50% beyond GEO for counterweight
+    r_top = r_GEO * 1.5;
+
+    total_cable_length = r_top - r_0;
+
+    cout << endl << "Total cable length: " << total_cable_length / 1000 << " km" << endl;
+
+    double dr = 1000; // 1 km segments
+    int num_segments = total_cable_length / dr;
+
+    cout << "Number of segments " << num_segments << endl;
+
+    //resize the vectors to hold all results
+    cableLength.resize(num_segments);
+    cableWidth.resize(num_segments);
+    cableWeight.resize(num_segments);
+    cableSegmentWeight.resize(num_segments);
+    locationEffectsList.resize(num_segments);
+
+    //set A_TOP - cross sectional area of the top of the cable
+    double A_top = 1e-4; // 1cm^2
+    cout << "Initial area at top (A_top: " << A_top * 10000 << " cm2" << endl;
+
+    //pre-calculate cumulative g_eff for optimization
+    //creates an array where cumulative_g_eff[i] = integram from 0 to i
+
+    vector<double> cumulative_g_eff(num_segments + 1);
+    cumulative_g_eff[0] = 0; //base case
+
+    for (int i = 0; i < num_segments; i++) {
+        double r_i = r_0 + (i * dr);
+        double g_eff_i = (G * M / pow(r_i, 2)) - pow(omega, 2) * r_i;
+        cumulative_g_eff[i + 1] = cumulative_g_eff[i] + g_eff_i * dr;
+    }
+
+    cout << "Starting the heavy lifting..." << endl;
+
+    //main calculation loop (top to bottom)
+    //reset cumulative tension - starting at 0 at the top
+    cumulative_tension = 0;
+    bool use_location_effects = !locationList.empty() || (locProp.latitude != 0);
+    //loop from top to bottom
+    for (int i = num_segments - 1; i >= 0; i--) {
+        //effective radius from earth's center
+        double current_r = r_0 + (i * dr);
+		locationEffect(int i); // calculate location effects for this section
+        //effective gravity at this point (negative beyond GEO)
+        if (use_location_effects) {
+            locationEffect(); // calculate location effects for this section
+            g_eff_local = (G * M / pow(current_r, 2)) - pow(omega, 2) * current_r + locationEffectsList[i].gravity_effect;
+        }
+        else {
+            g_eff_local = (G * M / pow(current_r, 2)) - pow(omega, 2) * current_r;
+        }
+        //simple area from tension
+        double required_area_simple;
+        if (cumulative_tension > 0) {
+            required_area_simple = cumulative_tension / matProp.sigma_max;
+        }
+        else {
+            required_area_simple = A_top;
+        }
+
+        //exponential taper formula
+        //get integral from current point i to TOP
+        //uses pre-calculated cumulative array for 0(1) lookup
+        double g_eff_integral = cumulative_g_eff[num_segments] - cumulative_g_eff[i];
+
+        //apply exponential taper formula
+        //accounts for the accumulated gravitational stress from here to the top
+        double taper_factor = exp((material_density * abs(g_eff_integral)) / matProp.sigma_max);
+        double tapered_area = A_top * taper_factor;
+
+        //choose the safer area
+        double final_area = max(required_area_simple, tapered_area);
+
+        //ensure minimum area constraint
+        if (final_area < A_top) {
+            final_area = A_top;
+        }
+        //calculate the segment weight
+        double segment_weight = material_density * final_area * dr * abs(g_eff_local);
+
+        //update cumulative tension
+        cumulative_tension += segment_weight;
+
+        //store results
+        cableLength[i] = current_r - r_0;
+        cableWidth[i] = final_area;
+        cableWeight[i] = cumulative_tension;
+        cableSegmentWeight[i] = segment_weight;
+
+        //store section properties
+        sectionList.resize(num_segments); // ensure the sectionList is the correct size
+        sectionList[i].sectNum = i;
+        sectionList[i].radius = current_r;
+        sectionList[i].length = dr;
+        sectionList[i].cross_area = final_area;
+
+        if (debug == 1) {
+            //progress indicator
+            if (i % 1000 == 0) {
+                cout << "Height: " << (current_r - r_0) / 1000 << " km, " << endl
+                    << "Area: " << final_area * 10000 << " cm^2, " << endl
+                    << "Tension: " << cumulative_tension / 1e6 << " MN" << endl << endl;
+            }
+        }
+    }
+    //check for failure
+    cout << "Checking for cable integrity..." << endl;
+    cable_failed = isBroken(num_segments);
+    //report results
+    if (cable_failed) {
+        cout << endl << "====== Cable Integrity Check ======" << endl;
+        cout << endl << "Cable Failure" << endl;
+        cout << "Failure at height: " << cableLength[failure_height] / 1000 << " km" << endl;
+        cout << "Stress at failure: " << (cableWeight[failure_height] / cableWidth[failure_height]) / 1e9 << " GPa" << endl;
+        cout << "Material Limit: " << matProp.sigma_max / 1e9 << " GPa" << endl;
+    }
+    else {
+        cout << endl << "====== Cable Integrity Check ======" << endl;
+        cout << endl << "SUCCESS: The cable STANDS STRONG" << endl;
+        cout << "Maximum stress: " << max_stress / 1e9 << " GPa" << endl;
+        cout << "Material limit: " << matProp.sigma_max / 1e9 << " GPa" << endl;
+        cout << "Safety margin: " << ((matProp.sigma_max - max_stress) / matProp.sigma_max * 100) << "%" << endl;
+
+    }
+
+    //additional stats
+    double total_mass = 0;
+    double max_area = 0;
+    double min_area = 1e10; // large to start
+
+    for (int i = 0; i < num_segments; i++) {
+        //mass of segment
+        total_mass += material_density * cableWidth[i] * dr;
+
+        //track min/max area
+        if (cableWidth[i] > max_area) max_area = cableWidth[i];
+        if (cableWidth[i] < min_area) min_area = cableWidth[i];
+    }
+
+
+
+    cout << endl << "====== Cable Stats ======" << endl;
+    cout << "Total cable mass: " << total_mass / 1e6 << " metric tons" << endl;
+    cout << "Minimum area (at top): " << min_area * 10000 << " cm^2" << endl;
+    cout << "Maximum area (near Earth): " << max_area * 10000 << " cm^2" << endl;
+    cout << "Taper ratio: " << max_area / min_area << endl;
+    cout << "Cable extends from " << r_0 / 1000 << " km to " << r_top / 1000 << " km from Earth's center" << endl;
+    cout << "Done" << endl;
+
 }
 
 //elevatorDynamics is used for calculating and storing the data of the forces, power, velocity, acceleration of the full elevator system
@@ -691,6 +710,9 @@ void elevatorDynamics() {
 
 //elevatorEffects is used for calculating and storing the data of the effects of the full elevator system on the cable
 void elevatorEffects() {
+}
+//elevatorGeometry is used for calculating and storing the data of the cross-section, weight, length of the full elevator system
+void elevatorGeometry() {
 }
 
 //This is to calculate price per kg
@@ -727,21 +749,28 @@ void pricePerKg() {
 
 //This is for the main function
 int main(){
-    if (debug == 'm') cout << endl << "calling materialDefinition()" << endl;
+    if (debug ==2) cout << endl << "calling materialDefinition()" << endl;
     materialDefinition();
-    if (debug == 'm') cout << endl << "calling orbitalMechanics()" << endl;
-    orbitalMechanics();
-    if (debug == 'm') cout << endl << "calling cableGeometry()" << endl;
-    cableGeometry();
-    if (debug == 'm') cout << endl << "calling pricePerKg()" << endl;
-    pricePerKg();
-	if (debug == 'm') cout << endl << "calling locationChoice()" << endl;
+    if (debug == 2) cout << endl << "calling locationChoice()" << endl;
     locationChoice();
-	if (debug == 'm') cout << endl << "calling locationEffects()" << endl;
-	locationEffect();
+    if (debug == 2) cout << endl << "calling locationEffects()" << endl;
+    locationEffect();
+    if (debug == 2) cout << endl << "calling orbitalMechanics()" << endl;
+    orbitalMechanics();
+    if (debug == 2) cout << endl << "calling cableGeometry()" << endl;
+    cableGeometry();
+    if (debug == 2) cout << endl << "calling pricePerKg()" << endl;
+    pricePerKg();
+
 
 
     
     return 0;
 }
+
+//the data flow should be as follows:
+//user defines materials OR chooses to define sections -> user chooses location or compares multiple
+//all of the geometry and dynamics functions are called to calculated the effects of each part of the system
+//all the effects are calculated and applied to the sectionEffects struct
+//elevator properties are calculated and effects are applied to simulate stress, tension, and other factors on the cable
 
