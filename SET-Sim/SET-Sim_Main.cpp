@@ -112,7 +112,7 @@ struct MaterialProperties {
     double safety_factor;               // Figure of Merit (tensile_strength/density) in km
     double FOM;
 	double price_per_kg;                // $/kg
-	double totalCost;                  // total cost of the cable
+	double totalCost;                   // total cost of the cable
 }matProp;
 
 struct locationProperties {
@@ -124,6 +124,39 @@ struct locationProperties {
     double wind_speed;                  // m/s
     double seismic_activity;            // Richter scale
 }locProp;
+
+struct locationEffects {
+	double coriolis_parameter;          // Coriolis parameter at the location (1/s)
+	double centrifugal_effect;          // Centrifugal effect at the location (m/s^2)
+	double gravity_effect;              // Local gravity effect at the location (m/s^2)
+    
+}locEff;
+
+//store as many properties of each section as needed 
+struct sectionProperties {
+
+	int sectNum;                        // Section number/index
+	double radius;                      // Distance from Earth's center (m)  ====== use this for calculations :(  ======
+    double length;                      // Length of the section (m)
+    double cross_area;                  // Cross-sectional area (m^2)
+    double mass;                        // Mass of the section (kg)
+    double tension;                     // Tension at the section (N)
+	double stress;                      // Stress at the section (Pa)
+}sectProp;
+
+//this is to hold the effects applied on each section
+struct sectionEffects {
+
+	int sectNum;                        // Section number/index
+    double wind_load;                   // Wind load on the section (N)
+    double seismic_load;                // Seismic load on the section (N)
+    double thermal_expansion;           // Thermal expansion effect (m)
+	double climber_load;                // Load from climbers on the section (N)
+	double counterweight_load;          // Load from counterweight on the section (N)
+	double solar_radiation_load;        // Load from solar radiation pressure on the section (N)
+	double gravity_effect;              // Effect of local gravity variations (m/s^2)
+
+}sectEff;
 
 // ============================================
 // Defining the arrays
@@ -139,31 +172,61 @@ vector<double> atmos_densityList;
 vector<double> wind_speedList;
 vector<double> seismic_activityList;
 vector<locationProperties> locationList;     // to hold multiple location properties (i don't know wether to use a struct or just multiple arrays here.)
+vector<sectionProperties> sectionList;       // to hold multiple section properties (dude, structs are life atp)
+vector<sectionEffects> sectionEffectsList;   // to hold multiple section effects 
 
 
 // ============================================
 // Settings
 // ============================================
 // This is to define any settings like DEBUG that helps me understand where i messed up
-//0 = off, 1 = enabled for orbitalMechanics, cableGeometry, materialDefinition, 2 = locationChoice
-int debug = 2;
+// Made it verbose for no actual reason. check debug function to see details
+char debug;
+
+
+/*
+A = all debug level (TODO)
+M = Main function debug level
+L = Location debug level
+C = Cable debug level
+
+*/
+
 
 // ============================================
-// Actual mfn code
+// TODO LIST
 // ============================================
+// Add in wind loading, seismic activity, and other environmental factors
+// Add in climber effects
+// Add in location effects
+// Add in dynamic properties
+// Add in counterweight effects
+// Add in solar and atmospheric drag effects
+// Make sure that each section is stored in the sectionProperties struct for future use
+// Make elevatorGeometry function that calls this one and adds in the other effects I.E. extra cables, climbers, counterweight, etc.
+// Flesh out any other functions that are not yet
+// Make a GUI (maybe?) -> Python? 
+	//Full graphics and visualization of the cable and climber system need stress graphs and other data visualizations
 
+
+
+// ============================================
+// Actual gosh darn code finally
+// ============================================
 
 
 //calculate all of the base orbital mechanics
-void orbitalMechanics() {
+double orbitalMechanics(double r = r_GEO) {
     r_GEO = pow((G * M * pow(T, 2) / (4 * pow(pi, 2))), (1.0 / 3.0)); // calculate the radius from center of earth to Geostationary orbit
 
-    r = r_GEO; //to calculate valid effective gravity at point r
+    //to calculate valid effective gravity at point r
     g_eff = (G * (M / pow(r, 2))) - (pow(omega, 2) * r); // calculating gravity is (earths gravity - centrifugal force) should be close to 0 at r_GEO and 9.8 at r_0
 
     cout << "r_GEO: " << r_GEO << endl;
     cout << "g_eff: " << g_eff;
+    return g_eff;
 }
+
 
 //this is to add the variables to the construct
 void materialProperties(string n, double density, double tensile, double yield_strength, double sf = 2.0) {
@@ -176,6 +239,16 @@ void materialProperties(string n, double density, double tensile, double yield_s
     matProp.sigma_max = (yield_strength / sf);
     matProp.FOM = (tensile / (density * g_0) / 1000.0);
     
+}
+
+//section properties function to make custom setions if needed
+void makeSectionProperties(int sectNum, double density, double tensile, double yield, double sf) {
+    sectProp.sectNum = sectNum;
+    //this is to define custom sections for different possible compositions
+	//TODO: make this work with the rest of the program
+	//TODO: add in the ability to define segment connections at specific heights i.e. GEO, 100km, etc. OR if a user wants to use multiple materials, at material connection, average the two materials' properties for a more generalized transition
+    sectionList.push_back(sectProp);
+
 }
 
 //this is to define the material properties
@@ -275,6 +348,7 @@ bool isBroken(int num_segments) {
 }
 
 //cableGeometry is used for calculating and storing the data of the cross-section, weight, length of the elevator
+
 void cableGeometry() {
     //Init variables
 
@@ -418,6 +492,207 @@ void cableGeometry() {
 
 }
 
+//This is to calculate location effects
+void locationEffect() {
+    double local_g;
+    double coriolis_p;
+    double local_omega;
+    double velo_0;
+    double toRAD = pi / 180.0;
+
+    int i = sectProp.sectNum; //section number to calculate at - change as needed
+    //calculate sin of latitude in radians
+    double sinLatitude = sin(locProp.latitude * toRAD);
+    double cosLatitude = cos(locProp.latitude * toRAD);
+
+    //calculate local g based on latitude
+    local_g = orbitalMechanics(sectionList[i].radius);
+	locEff.gravity_effect += local_g;
+
+    //local coriolis parameter
+    coriolis_p = 2 * omega * sinLatitude;
+	locEff.coriolis_parameter = coriolis_p;
+
+    //ground velocity at latitude
+    local_omega = omega * sectionList[i].radius * cosLatitude;
+	locEff.centrifugal_effect = local_omega;
+}
+
+//This is to get the location
+void locationChoice() {
+    cout << "Specific location (Y) or compare for best results (N)? (y/N): ";
+    string locChoice;
+    cin.ignore();
+    getline(cin, locChoice);
+    if (locChoice == "") locChoice = "N"; //default to N if empty
+    if (locChoice == "y" || locChoice == "Y") {
+        cout << "Enter latitude (-90 to 90): ";
+        double latitude;
+        double longitude;
+        cin >> latitude;
+        cout << "Enter longitude (-180 to 180) (0 by default): ";
+        cin >> longitude;
+
+        //put it in the locProp struct
+        locProp.latitude = latitude;
+        locProp.longitude = longitude;
+    }
+    else { // the illusion of choice lmao
+        cout << "Did you want to compare specific locations or use the defualt of: " << endl;
+        cout << "1. Equator (0deg)" << endl;
+        cout << "2. 28.5N (Cape Canaveral)" << endl;
+        cout << "3. 28.5N (Kennedy Space Center)" << endl;
+        cout << "4. 34N (Vandenberg Space Force Base)" << endl;
+        cout << "5. 45.6N (Baikonur Cosmodrome)" << endl;
+        cout << "6. 5.2N (Guiana Space Centre)" << endl;
+        cout << "Or you can choose to enter your own latitudes as well." << endl;
+        cout << "Either enter 'default' or 'custom': ";
+        string locType;
+        getline(cin, locType);
+
+        if (locType == "default" || locType == "D" || locType == "d") {
+            //location list has name, latitude, longitude, elevation, atmos_density, wind_speed, seismic activity
+            locationList.push_back({ "Equator", 0.0, 0.0, 0.0, 1.225, 5.0, 0.0 });
+            locationList.push_back({ "Cape Canaveral", 28.5, -80.6, 3.0, 1.225, 10.0, 0.0 });
+            locationList.push_back({ "Kennedy Space Center", 28.5, -80.6, 3.0, 1.225, 10.0, 0.0 });
+            locationList.push_back({ "Vandenberg Space Force Base", 34.7, -120.6, 112.0, 1.225, 8.0, 1.5 });
+            locationList.push_back({ "Baikonur Cosmodrome", 45.6, 63.3, 90.0, 1.225, 7.0, 0.5 });
+            locationList.push_back({ "Guiana Space Centre", 5.2, -52.8, 10.0, 1.225, 6.0, 0.0 });
+
+            cout << "Using default locations." << endl;
+        }
+        else { //choose your own adventure style
+            cout << "Enter latitudes separated by spaces (end with -999): ";
+            double lat;
+            while (true) {
+                cout << "Latitude: ";
+                cin >> lat;
+                if (lat == -999) break;
+                latitudeList.push_back(lat);
+            }
+            cout << "Would you like to assign Longitudes as well? (0 by default) (y/N): ";
+            string lonChoice;
+            getline(cin, lonChoice);
+            if (lonChoice == "y" || lonChoice == "Y") {
+                double longitude;
+                for (size_t i = 0; i < latitudeList.size(); i++) {
+                    cout << "Enter longitude for latitude " << latitudeList[i] << ": ";
+                    cin >> longitude;
+                    longitudeList.push_back(longitude);
+                }
+            }
+            else { // defaults to 0 if not specified
+                for (size_t i = 0; i < latitudeList.size(); i++) {
+                    longitudeList.push_back(0.0);
+                }
+
+            }
+            cout << "Would you like to assign any other variables as well? elevation, atmos_density, wind_speed, seismic activity (0 by default) (y/N): ";
+            string otherChoice;
+            getline(cin, otherChoice);
+            if (otherChoice == "y" || otherChoice == "Y") {
+                double elevation;
+                double atmos_density;
+                double wind_speed;
+                double seismic_activity;
+                cout << "Would you like to assign elevation? (y/N): ";
+                string elevChoice;
+                getline(cin, elevChoice);
+                if (elevChoice == "y" || elevChoice == "Y") {
+                    for (size_t i = 0; i < latitudeList.size(); i++) {
+                        cout << "Enter elevation for latitude " << latitudeList[i] << ": ";
+                        cin >> elevation;
+                        elevationList.push_back(elevation);
+                    }
+                }
+                cout << "Would you like to assign atmospheric density? (y/N): ";
+                string atmosChoice;
+                getline(cin, atmosChoice);
+                if (atmosChoice == "y" || atmosChoice == "Y") {
+                    for (size_t i = 0; i < latitudeList.size(); i++) {
+                        cout << "Enter atmospheric density for latitude " << latitudeList[i] << ": ";
+                        cin >> atmos_density;
+                        atmos_densityList.push_back(atmos_density);
+                    }
+                }
+                cout << "Would you like to assign wind speed? (y/N): ";
+                string windChoice;
+                getline(cin, windChoice);
+                if (windChoice == "y" || windChoice == "Y") {
+                    for (size_t i = 0; i < latitudeList.size(); i++) {
+                        cout << "Enter wind speed for latitude " << latitudeList[i] << ": ";
+                        cin >> wind_speed;
+                        wind_speedList.push_back(wind_speed);
+                    }
+                }
+                cout << "Would you like to assign seismic activity? (y/N): ";
+                string seismicChoice;
+                getline(cin, seismicChoice);
+                if (seismicChoice == "y" || seismicChoice == "Y") {
+                    for (size_t i = 0; i < latitudeList.size(); i++) {
+                        cout << "Enter seismic activity for latitude " << latitudeList[i] << ": ";
+                        cin >> seismic_activity;
+                        seismic_activityList.push_back(seismic_activity);
+                    }
+                }
+            }
+            else { // defaults to 0 (atmos is 1.225) ifnot specified
+                for (size_t i = 0; i < latitudeList.size(); i++) {
+                    longitudeList.push_back(0.0);
+                    elevationList.push_back(0.0);
+                    atmos_densityList.push_back(1.225);
+                    wind_speedList.push_back(0.0);
+                    seismic_activityList.push_back(0.0);
+                }
+                for (size_t i = 0; i < latitudeList.size(); i++) {
+                    locationList.push_back({ "Custom Location", latitudeList[i], longitudeList[i], elevationList[i], atmos_densityList[i], wind_speedList[i], seismic_activityList[i] });
+                }
+            }
+        }
+    }
+    cout << debug << endl << "====== Location Summary ======" << endl;
+    if (debug == 'L') {
+        for (size_t i = 0; i < locationList.size(); i++) {
+            cout << "Location: " << i + 1 << endl << "Name: " << locationList[i].name << endl << "Latitude: " << locationList[i].latitude << endl << "Longitude: " << locationList[i].longitude << endl << "Atmospheric_density: " << locationList[i].atmos_density << endl << "Elevation: " << locationList[i].elevation << endl << "Wind Speed: " << locationList[i].wind_speed << endl << endl;
+        }
+    }
+}
+
+//climberGeometry is used for calculating and storing the data of the cross-section, weight, length of the climber system
+void climberGeometry() {
+}
+
+//climberDynamics is used for calculating and storing the data of the forces, power, velocity, acceleration of the climber system
+void climberDynamics() {
+}
+
+//climberEffects is used for calculating and storing the data of the effects of the climber system on the cable
+void climberEffects() {
+}
+
+//counterweightGeometry is used for calculating and storing the data of the cross-section, weight, length of the counterweight system
+void counterweightGeometry() {
+}
+
+//counterweightDynamics is used for calculating and storing the data of the forces, power, velocity, acceleration of the counterweight system
+void counterweightDynamics() {
+}
+//counterweightEffects is used for calculating and storing the data of the effects of the counterweight system on the cable
+void counterweightEffects() {
+}
+
+//elevatorGeometry is used for calculating and storing the data of the cross-section, weight, length of the full elevator system
+void elevatorGeometry() {
+}
+
+//elevatorDynamics is used for calculating and storing the data of the forces, power, velocity, acceleration of the full elevator system
+void elevatorDynamics() {
+}
+
+//elevatorEffects is used for calculating and storing the data of the effects of the full elevator system on the cable
+void elevatorEffects() {
+}
+
 //This is to calculate price per kg
 void pricePerKg() {
     if (matProp.name == "Steel") {
@@ -447,166 +722,23 @@ void pricePerKg() {
     matProp.totalCost = total_cost;
 }
 
-//This is to calculate location effects
-void locationEffects() {
 
-}
-
-//This is to get the location
-void locationChoice() {
-    cout << "Specific location (Y) or compare for best results (N)? (y/N): ";
-	string locChoice;
-    cin.ignore();
-    getline(cin, locChoice);
-	if (locChoice == "") locChoice = "N"; //default to N if empty
-    if (locChoice == "y" || locChoice == "Y") {
-		cout << "Enter latitude (-90 to 90): ";
-		double latitude;
-        double longitude;
-		cin >> latitude;
-		cout << "Enter longitude (-180 to 180) (0 by default): ";
-        cin >> longitude;
-
-        //put it in the locProp struct
-        locProp.latitude = latitude;
-		locProp.longitude = longitude;
-    }
-    else { // the illusion of choice lmao
-        cout << "Did you want to compare specific locations or use the defualt of: " << endl;
-		cout << "1. Equator (0deg)" << endl;
-		cout << "2. 28.5N (Cape Canaveral)" << endl;
-		cout << "3. 28.5N (Kennedy Space Center)" << endl;
-		cout << "4. 34N (Vandenberg Space Force Base)" << endl;
-		cout << "5. 45.6N (Baikonur Cosmodrome)" << endl;
-		cout << "6. 5.2N (Guiana Space Centre)" << endl;
-		cout << "Or you can choose to enter your own latitudes as well." << endl;
-        cout << "Either enter 'default' or 'custom': ";
-		string locType;
-		getline(cin, locType);
-        
-        if (locType == "default" || locType == "D" || locType == "d") {
-			//location list has name, latitude, longitude, elevation, atmos_density, wind_speed, seismic activity
-            locationList.push_back({ "Equator", 0.0, 0.0, 0.0, 1.225, 5.0, 0.0 });
-            locationList.push_back({ "Cape Canaveral", 28.5, -80.6, 3.0, 1.225, 10.0, 0.0 });
-            locationList.push_back({ "Kennedy Space Center", 28.5, -80.6, 3.0, 1.225, 10.0, 0.0 });
-            locationList.push_back({ "Vandenberg Space Force Base", 34.7, -120.6, 112.0, 1.225, 8.0, 1.5 });
-            locationList.push_back({ "Baikonur Cosmodrome", 45.6, 63.3, 90.0, 1.225, 7.0, 0.5 });
-            locationList.push_back({ "Guiana Space Centre", 5.2, -52.8, 10.0, 1.225, 6.0, 0.0 });
-
-			cout << "Using default locations." << endl;
-        }
-        else { //choose your own adventure style
-            cout << "Enter latitudes separated by spaces (end with -999): ";
-            double lat;
-            while (true) {
-				cout << "Latitude: ";
-                cin >> lat;
-                if (lat == -999) break;
-                latitudeList.push_back(lat);
-            }
-			cout << "Would you like to assign Longitudes as well? (0 by default) (y/N): ";
-			string lonChoice;
-            getline(cin, lonChoice);
-            if (lonChoice == "y" || lonChoice == "Y") {
-                double longitude;
-                for (size_t i = 0; i < latitudeList.size(); i++) {
-                    cout << "Enter longitude for latitude " << latitudeList[i] << ": ";
-                    cin >> longitude;
-                    longitudeList.push_back(longitude);
-                }
-            }
-            else { // defaults to 0 if not specified
-                for (size_t i = 0; i < latitudeList.size(); i++){
-                    longitudeList.push_back(0.0);
-                }
-           
-            }
-            cout << "Would you like to assign any other variables as well? elevation, atmos_density, wind_speed, seismic activity (0 by default) (y/N): ";
-            string otherChoice;
-            getline(cin, otherChoice);
-            if (otherChoice == "y" || otherChoice == "Y") {
-                double elevation;
-                double atmos_density;
-				double wind_speed;
-				double seismic_activity;
-				cout << "Would you like to assign elevation? (y/N): ";
-				string elevChoice;
-				getline(cin, elevChoice);
-                if (elevChoice == "y" || elevChoice == "Y") {
-                    for (size_t i = 0; i < latitudeList.size(); i++) {
-                        cout << "Enter elevation for latitude " << latitudeList[i] << ": ";
-                        cin >> elevation;
-                        elevationList.push_back(elevation);
-                    }
-                }
-				cout << "Would you like to assign atmospheric density? (y/N): ";
-				string atmosChoice;
-                getline(cin, atmosChoice);
-                if (atmosChoice == "y" || atmosChoice == "Y") {
-                    for (size_t i = 0; i < latitudeList.size(); i++) {
-                        cout << "Enter atmospheric density for latitude " << latitudeList[i] << ": ";
-                        cin >> atmos_density;
-                        atmos_densityList.push_back(atmos_density);
-                    }
-				}
-				cout << "Would you like to assign wind speed? (y/N): ";
-                string windChoice;
-                getline(cin, windChoice);
-                if (windChoice == "y" || windChoice == "Y") {
-                    for (size_t i = 0; i < latitudeList.size(); i++) {
-                        cout << "Enter wind speed for latitude " << latitudeList[i] << ": ";
-                        cin >> wind_speed;
-                        wind_speedList.push_back(wind_speed);
-                    }
-                }
-				cout << "Would you like to assign seismic activity? (y/N): ";
-                string seismicChoice;
-                getline(cin, seismicChoice);
-                if (seismicChoice == "y" || seismicChoice == "Y") {
-                    for (size_t i = 0; i < latitudeList.size(); i++) {
-                        cout << "Enter seismic activity for latitude " << latitudeList[i] << ": ";
-                        cin >> seismic_activity;
-                        seismic_activityList.push_back(seismic_activity);
-                    }
-				}
-            }
-            else { // defaults to 0 (atmos is 1.225) ifnot specified
-                for (size_t i = 0; i < latitudeList.size(); i++) {
-                    longitudeList.push_back(0.0);
-					elevationList.push_back(0.0);
-                    atmos_densityList.push_back(1.225);
-                    wind_speedList.push_back(0.0);
-					seismic_activityList.push_back(0.0);
-                }
-                for (size_t i = 0; i < latitudeList.size(); i++) {
-                    locationList.push_back({ "Custom Location", latitudeList[i], longitudeList[i], elevationList[i], atmos_densityList[i], wind_speedList[i], seismic_activityList[i] });
-                }
-            }
-		}
-    }
-	cout << debug << endl << "====== Location Summary ======" << endl;
-    if (debug == 2) {
-        for (size_t i = 0; i < locationList.size(); i++) {
-            cout << "Location: " << i + 1 << endl << "Name: " << locationList[i].name << endl << "Latitude: " << locationList[i].latitude << endl << "Longitude: " << locationList[i].longitude << endl <<  "Atmospheric_density: " << locationList[i].atmos_density << endl << "Elevation: " << locationList[i].elevation << endl << "Wind Speed: " << locationList[i].wind_speed << endl << endl;
-        }
-    }
-}
 
 
 //This is for the main function
 int main(){
-    if (debug == 1) cout << endl << "calling materialDefinition()" << endl;
+    if (debug == 'm') cout << endl << "calling materialDefinition()" << endl;
     materialDefinition();
-    if (debug == 1) cout << endl << "calling orbitalMechanics()" << endl;
+    if (debug == 'm') cout << endl << "calling orbitalMechanics()" << endl;
     orbitalMechanics();
-    if (debug == 1) cout << endl << "calling cableGeometry()" << endl;
+    if (debug == 'm') cout << endl << "calling cableGeometry()" << endl;
     cableGeometry();
-    if (debug == 1) cout << endl << "calling pricePerKg()" << endl;
+    if (debug == 'm') cout << endl << "calling pricePerKg()" << endl;
     pricePerKg();
-	if (debug == 1) cout << endl << "calling locationChoice()" << endl;
+	if (debug == 'm') cout << endl << "calling locationChoice()" << endl;
     locationChoice();
-	if (debug == 1) cout << endl << "calling locationEffects()" << endl;
-	locationEffects();
+	if (debug == 'm') cout << endl << "calling locationEffects()" << endl;
+	locationEffect();
 
 
     
